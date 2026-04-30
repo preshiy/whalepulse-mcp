@@ -1,0 +1,152 @@
+{
+  "name": "WhalePulse",
+  "version": "1.0.0",
+  "description": "Exchange net flow regime classifier with price divergence detection for BTC — delivering a conviction-scored accumulation vs distribution verdict on demand.",
+  "category": "Crypto & DeFi",
+  "mode": ["Query", "Execute"],
+  "tools": [
+    {
+      "name": "get_whale_regime",
+      "description": "Returns BTC exchange flow regime classification — accumulation or distribution — with whale cohort delta, MVRV zone, divergence detection, conviction score, and plain English verdict.",
+      "input_schema": {
+        "asset": {
+          "type": "string",
+          "default": "BTC",
+          "description": "Asset to analyze. Default is BTC."
+        }
+      },
+      "output_schema": {
+        "asset": "string",
+        "regime": "string",
+        "conviction_score": "number",
+        "exchange_net_flow_7d_btc": "number",
+        "exchange_net_flow_30d_btc": "number",
+        "flow_direction": "string",
+        "whale_cohorts": {
+          "cohort_1k_10k_btc": "number",
+          "cohort_10k_plus_btc": "number",
+          "delta_1k_10k_7d": "number",
+          "delta_10k_plus_7d": "number",
+          "net_whale_delta_7d": "number",
+          "cohort_signal": "string",
+          "total_whale_holdings_btc": "number"
+        },
+        "price_usd": "number",
+        "price_change_7d_pct": "number",
+        "mvrv": "number",
+        "mvrv_zone": "string",
+        "divergence": {
+          "detected": "boolean",
+          "type": "string",
+          "severity": "string",
+          "note": "string"
+        },
+        "verdict": "string",
+        "confidence": "string",
+        "data_freshness_hours": "number",
+        "last_updated": "string",
+        "sources": ["string"]
+      }
+    },
+    {
+      "name": "get_divergence_signal",
+      "description": "Detects divergence between BTC price action and exchange flow direction — returns bullish or bearish signal with severity rating.",
+      "input_schema": {
+        "asset": {
+          "type": "string",
+          "default": "BTC",
+          "description": "Asset to analyze. Default is BTC."
+        }
+      },
+      "output_schema": {
+        "asset": "string",
+        "price_change_7d_pct": "number",
+        "exchange_net_flow_7d_btc": "number",
+        "flow_direction": "string",
+        "whale_cohort_signal": "string",
+        "net_whale_delta_7d": "number",
+        "mvrv": "number",
+        "mvrv_zone": "string",
+        "divergence_detected": "boolean",
+        "divergence_type": "string",
+        "divergence_severity": "string",
+        "divergence_note": "string",
+        "directional_bias": "string",
+        "confidence": "string",
+        "freshness_hours": "number",
+        "last_updated": "string",
+        "sources": ["string"]
+      }
+    },
+    {
+      "name": "get_conviction_score",
+      "description": "Returns a 0-100 conviction score for BTC accumulation or distribution pressure with full signal breakdown showing contribution of each factor.",
+      "input_schema": {
+        "asset": {
+          "type": "string",
+          "default": "BTC",
+          "description": "Asset to analyze. Default is BTC."
+        }
+      },
+      "output_schema": {
+        "asset": "string",
+        "conviction_score": "number",
+        "signal_breakdown": {
+          "flow_magnitude_score": "number",
+          "trend_consistency_score": "number",
+          "acceleration_score": "number",
+          "address_activity_score": "number",
+          "mvrv_adjustment": "number",
+          "whale_cohort_score": "number",
+          "whale_delta_bonus": "number",
+          "divergence_penalty": "number"
+        },
+        "regime": "string",
+        "mvrv": "number",
+        "mvrv_zone": "string",
+        "whale_cohort_signal": "string",
+        "net_whale_delta_7d": "number",
+        "verdict": "string",
+        "confidence": "string",
+        "freshness_hours": "number",
+        "last_updated": "string",
+        "sources": ["string"]
+      }
+    }
+  ],
+  "must_win_prompts": [
+    "Are whales accumulating or distributing BTC from exchanges this week?",
+    "What is the current BTC exchange flow regime and conviction score?",
+    "Is there a divergence between BTC price action and exchange flows right now?",
+    "Should I be concerned about distribution pressure before sizing my BTC position?",
+    "What are whale addresses doing with their BTC holdings this week?",
+    "What does the MVRV zone tell us about current BTC market conditions?",
+    "Give me a full conviction breakdown for BTC accumulation pressure today"
+  ],
+  "data_sources": [
+    "CoinMetrics Community API — exchange flows, MVRV, active addresses, price",
+    "bitcoin-data.com API — whale address cohort balances at 1k-10k BTC and 10k+ BTC resolution"
+  ],
+  "freshness": "4-hour cached responses",
+  "scope_boundary": {
+    "in_v1": [
+      "BTC only",
+      "Exchange flow regime classification",
+      "Whale cohort delta at 1k-10k and 10k+ BTC resolution",
+      "MVRV zone classification",
+      "Price divergence detection",
+      "Conviction scoring 0-100",
+      "4-hour cached responses"
+    ],
+    "not_in_v1": [
+      "No altcoins",
+      "No dashboards",
+      "No alerts or monitoring feeds",
+      "No individual wallet tracking",
+      "No real-time streaming",
+      "No portfolio management"
+    ]
+  },
+  "replaces": "Glassnode Advanced at $799/month",
+  "buyer": "Retail BTC macro investor without Glassnode seat sizing a position"
+}
