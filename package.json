@@ -1,7 +1,19 @@
-node -e "
-const fs = require('fs');
-const pkg = JSON.parse(fs.readFileSync('package.json'));
-pkg.scripts.start = 'node index.js';
-fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));
-console.log('Done');
-"
+{
+  "name": "whalepulse",
+  "version": "1.0.0",
+  "description": "BTC exchange flow regime classifier with whale cohort intelligence — WhalePulse MCP Tool",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "node tests/regime.test.js && node tests/conviction.test.js"
+  },
+  "keywords": ["bitcoin", "crypto", "mcp", "on-chain", "exchange-flow", "whale"],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "dotenv": "^17.4.2",
+    "node-fetch": "^2.7.0"
+  }
+}
