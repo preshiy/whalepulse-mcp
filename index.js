@@ -911,7 +911,9 @@ app.post('/mcp', express.json(), (req, res, next) => ctxMiddleware(req, res, nex
     if (method === 'tools/call') {
       const { name, arguments: args = {} } = params || {};
       const result = await dispatchTool(name, args);
-      return res.json({ jsonrpc: '2.0', id, result });
+      // Return structuredContent for schema validation, fall back to full result
+      const output = result.structuredContent || result;
+      return res.json({ jsonrpc: '2.0', id, result: output });
     }
 
     return res.json({ jsonrpc: '2.0', id, error: { code: -32601, message: 'Method not found' } });
