@@ -2,6 +2,7 @@ require('dotenv').config();
 const fetch = require('node-fetch');
 const { Server } = require('@modelcontextprotocol/sdk/server/index.js');
 const { SSEServerTransport } = require('@modelcontextprotocol/sdk/server/sse.js');
+const { StreamableHTTPServerTransport } = require('@modelcontextprotocol/sdk/server/streamableHttp.js');
 const { ListToolsRequestSchema, CallToolRequestSchema } = require('@modelcontextprotocol/sdk/types.js');
 const express = require('express');
 const fs = require('fs');
@@ -884,6 +885,13 @@ let ctxMiddleware = (req, res, next) => next();
 // Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', server: 'whalepulse', version: '1.0.0' });
+});
+
+// ── /mcp — HTTP Streaming transport (CTX auto-discovery uses this) ──
+app.all('/mcp', (req, res, next) => ctxMiddleware(req, res, next), async (req, res) => {
+  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+  await server.connect(transport);
+  await transport.handleRequest(req, res);
 });
 
 // SSE endpoint — MCP clients connect here to open a streaming channel
