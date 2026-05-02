@@ -7,13 +7,22 @@
     "start": "node index.js",
     "test": "node tests/regime.test.js && node tests/conviction.test.js"
   },
-  "keywords": ["bitcoin", "crypto", "mcp", "on-chain", "exchange-flow", "whale"],
+  "keywords": [
+    "bitcoin",
+    "crypto",
+    "mcp",
+    "on-chain",
+    "exchange-flow",
+    "whale"
+  ],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@ctxprotocol/sdk": "^0.13.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "dotenv": "^17.4.2",
+    "express": "^5.2.1",
     "node-fetch": "^2.7.0"
   }
 }
