@@ -872,7 +872,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 // GAP 3 fixed: HTTP SSE transport replacing StdioServerTransport
 // GAP 4 fixed: createContextMiddleware() properly loaded and applied
 const app = express();
-app.use(express.json());
 
 // Active SSE transports keyed by sessionId
 const transports = {};
@@ -906,7 +905,7 @@ app.get('/sse', async (req, res) => {
 
 // Message endpoint — MCP clients POST JSON-RPC messages here
 // CTX middleware intercepts tools/call for payment verification
-app.post('/message', (req, res, next) => ctxMiddleware(req, res, next), async (req, res) => {
+app.post('/message', express.json(), (req, res, next) => ctxMiddleware(req, res, next), async (req, res) => {
   const sessionId = req.query.sessionId;
   const transport = transports[sessionId];
   if (!transport) {
