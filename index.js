@@ -606,17 +606,27 @@ const TOOLS = [
   }
 ];
 
-// ── MCP Server (Server, not McpServer) ────────────────────────
-// GAP 3, 4, 5 fixed: using lower-level Server class which supports
-// outputSchema, _meta, and HTTP transports
-const server = new Server(
-  { name: 'whalepulse', version: '1.0.0' },
-  { capabilities: { tools: {} } }
-);
+// ── MCP Server Factory ───────────────────────────────────────
+// Creates a fresh Server per /mcp request to avoid transport reuse errors
+function createServer() {
+  const srv = new Server(
+    { name: 'whalepulse', version: '1.0.0' },
+    { capabilities: { tools: {} } }
+  );
 
-server.setRequestHandler(ListToolsRequestSchema, async () => ({
-  tools: TOOLS
-}));
+  srv.setRequestHandler(ListToolsRequestSchema, async () => ({
+    tools: TOOLS
+  }));
+
+  srv.setRequestHandler(CallToolRequestSchema, async (request) => {
+    return dispatchTool(request.params.name, request.params.arguments || {});
+  });
+
+  return srv;
+}
+
+// Keep a singleton for SSE transport
+const server = createServer();
 
 // ── Tool Dispatch ─────────────────────────────────────────────
 // GAP 2 fixed: every return now includes structuredContent
@@ -866,10 +876,6 @@ async function dispatchTool(name, args = {}) {
   }
 }
 
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  return dispatchTool(request.params.name, request.params.arguments || {});
-});
-
 // ── Express App ───────────────────────────────────────────────
 // GAP 3 fixed: HTTP SSE transport replacing StdioServerTransport
 // GAP 4 fixed: createContextMiddleware() properly loaded and applied
@@ -888,37 +894,21 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', server: 'whalepulse', version: '1.0.0' });
 });
 
-// ── /mcp — Stateless JSON-RPC handler for CTX auto-discovery ────
-app.post('/mcp', express.json(), (req, res, next) => ctxMiddleware(req, res, next), async (req, res) => {
+// ── /mcp — StreamableHTTP transport (CTX auto-discovery) ────────
+// Fresh server per request to avoid transport reuse issues
+app.all('/mcp', (req, res, next) => ctxMiddleware(req, res, next), async (req, res) => {
   try {
-    const { method, params, id } = req.body || {};
-
-    if (method === 'initialize') {
-      return res.json({
-        jsonrpc: '2.0', id,
-        result: {
-          protocolVersion: '2024-11-05',
-          capabilities: { tools: {} },
-          serverInfo: { name: 'whalepulse', version: '1.0.0' }
-        }
-      });
-    }
-
-    if (method === 'tools/list') {
-      return res.json({ jsonrpc: '2.0', id, result: { tools: TOOLS } });
-    }
-
-    if (method === 'tools/call') {
-      const { name, arguments: args = {} } = params || {};
-      const result = await dispatchTool(name, args);
-      // Return structuredContent for schema validation, fall back to full result
-      const output = result.structuredContent || result;
-      return res.json({ jsonrpc: '2.0', id, result: output });
-    }
-
-    return res.json({ jsonrpc: '2.0', id, error: { code: -32601, message: 'Method not found' } });
+    const srv = createServer();
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: undefined // stateless mode
+    });
+    await srv.connect(transport);
+    await transport.handleRequest(req, res, req.body);
   } catch (err) {
-    return res.status(500).json({ jsonrpc: '2.0', id: req.body?.id ?? null, error: { code: -32603, message: err.message } });
+    console.error('MCP transport error:', err);
+    if (!res.headersSent) {
+      res.status(500).json({ jsonrpc: '2.0', error: { code: -32603, message: err.message }, id: null });
+    }
   }
 });
 
