@@ -620,9 +620,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
 
 // ── Tool Dispatch ─────────────────────────────────────────────
 // GAP 2 fixed: every return now includes structuredContent
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  const { name, arguments: args = {} } = request.params;
-
+async function dispatchTool(name, args = {}) {
   try {
     switch (name) {
 
@@ -866,6 +864,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       isError: true
     };
   }
+}
+
+server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  return dispatchTool(request.params.name, request.params.arguments || {});
 });
 
 // ── Express App ───────────────────────────────────────────────
@@ -886,11 +888,36 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', server: 'whalepulse', version: '1.0.0' });
 });
 
-// ── /mcp — HTTP Streaming transport (CTX auto-discovery uses this) ──
-app.all('/mcp', (req, res, next) => ctxMiddleware(req, res, next), async (req, res) => {
-  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-  await server.connect(transport);
-  await transport.handleRequest(req, res);
+// ── /mcp — Stateless JSON-RPC handler for CTX auto-discovery ────
+app.post('/mcp', express.json(), (req, res, next) => ctxMiddleware(req, res, next), async (req, res) => {
+  try {
+    const { method, params, id } = req.body || {};
+
+    if (method === 'initialize') {
+      return res.json({
+        jsonrpc: '2.0', id,
+        result: {
+          protocolVersion: '2024-11-05',
+          capabilities: { tools: {} },
+          serverInfo: { name: 'whalepulse', version: '1.0.0' }
+        }
+      });
+    }
+
+    if (method === 'tools/list') {
+      return res.json({ jsonrpc: '2.0', id, result: { tools: TOOLS } });
+    }
+
+    if (method === 'tools/call') {
+      const { name, arguments: args = {} } = params || {};
+      const result = await dispatchTool(name, args);
+      return res.json({ jsonrpc: '2.0', id, result });
+    }
+
+    return res.json({ jsonrpc: '2.0', id, error: { code: -32601, message: 'Method not found' } });
+  } catch (err) {
+    return res.status(500).json({ jsonrpc: '2.0', id: req.body?.id ?? null, error: { code: -32603, message: err.message } });
+  }
 });
 
 // SSE endpoint — MCP clients connect here to open a streaming channel
