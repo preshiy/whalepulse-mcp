@@ -209,10 +209,10 @@ function classifyRegime(netFlow7d, netFlow30d, cohortSignal) {
   if (acc7d !== acc30d) {
     const primary   = acc7d ? 'Mild Accumulation' : 'Mild Distribution';
     const secondary = acc7d ? 'Mild Distribution' : 'Mild Accumulation';
-    return { primary, secondary, boundary: true, note: 'Signal sits between two states — short and long term flows conflict' };
+    return { primary, secondary, boundary: true, note: 'Signal sits between two states - short and long term flows conflict' };
   }
 
-  if (acc7d && acc30d && whaleAcc && mag > 5000) return 'Strong Accumulation';
+  if (acc7d && acc30d && !whaleAcc && mag > 5000) return 'Conflicted - Exchange Outflow but Whale Distribution';
   if (acc7d && acc30d && mag > 5000)             return 'Accumulation';
   if (acc7d && acc30d)                           return 'Mild Accumulation';
   if (!acc7d && !acc30d && !whaleAcc && mag > 5000) return 'Strong Distribution';
@@ -222,21 +222,32 @@ function classifyRegime(netFlow7d, netFlow30d, cohortSignal) {
 }
 
 // ── Divergence Detector ───────────────────────────────────────
-function detectDivergence(netFlow7d, priceChange7d) {
-  const flowAcc = netFlow7d > 0;
-  const priceUp = priceChange7d > 0;
+function detectDivergence(netFlow7d, priceChange7d, cohortSignal) {
+  const cohortAcc  = cohortSignal === 'strong_accumulation' || cohortSignal === 'mild_accumulation';
+  const cohortDist = cohortSignal === 'strong_distribution' || cohortSignal === 'mild_distribution';
+  const flowAcc    = netFlow7d > 0;
 
+  if (flowAcc && cohortDist) {
+    const severity = cohortSignal === 'strong_distribution' ? 'strong' : 'moderate';
+    return { detected: true, type: 'bearish', severity, note: 'Exchange outflows suggest accumulation but whale cohorts are reducing holdings - composite signal is bearish. Do not size up on exchange flow alone.' };
+  }
+  if (!flowAcc && cohortAcc) {
+    const severity = cohortSignal === 'strong_accumulation' ? 'strong' : 'moderate';
+    return { detected: true, type: 'bullish', severity, note: 'Exchange inflows suggest distribution but whale cohorts are accumulating - smart money may be absorbing sell pressure.' };
+  }
+
+  const priceUp = priceChange7d > 0;
   if (priceUp && !flowAcc) {
     const absPct   = Math.abs(priceChange7d);
     const severity = absPct > 10 ? 'strong' : absPct > 5 ? 'moderate' : 'mild';
-    return { detected: true, type: 'bearish', severity, note: 'Price rising but BTC leaving exchanges — potential distribution into strength' };
+    return { detected: true, type: 'bearish', severity, note: 'Price rising but BTC leaving exchanges - potential distribution into strength' };
   }
   if (!priceUp && flowAcc) {
     const absPct   = Math.abs(priceChange7d);
     const severity = absPct > 10 ? 'strong' : absPct > 5 ? 'moderate' : 'mild';
-    return { detected: true, type: 'bullish', severity, note: 'Price falling but BTC being withdrawn from exchanges — potential accumulation on weakness' };
+    return { detected: true, type: 'bullish', severity, note: 'Price falling but BTC being withdrawn from exchanges - potential accumulation on weakness' };
   }
-  return { detected: false, type: 'none', severity: 'none', note: 'Flow direction aligns with price action' };
+  return { detected: false, type: 'none', severity: 'none', note: 'Flow direction aligns with price action and whale cohort signal' };
 }
 
 // ── Bull Phase Probability ────────────────────────────────────
@@ -281,12 +292,13 @@ function scoreConviction(m, divergence) {
   score += mvrvAdj;
 
   let cohortDeltaScore = 0;
-  if (m.cohortSignal === 'strong_accumulation')   cohortDeltaScore =  15;
-  else if (m.cohortSignal === 'mild_accumulation') cohortDeltaScore =  8;
-  else if (m.cohortSignal === 'mild_distribution') cohortDeltaScore = -8;
-  else if (m.cohortSignal === 'strong_distribution') cohortDeltaScore = -15;
+  if (m.cohortSignal === 'strong_accumulation')   cohortDeltaScore =  20;
+  else if (m.cohortSignal === 'mild_accumulation') cohortDeltaScore =  10;
+  else if (m.cohortSignal === 'mild_distribution') cohortDeltaScore = -20;
+  else if (m.cohortSignal === 'strong_distribution') cohortDeltaScore = -30;
   score += cohortDeltaScore;
-
+if (m.cohortSignal === 'strong_distribution' && score > 50) score = 50;
+  if (m.cohortSignal === 'strong_accumulation' && score < 50) score = 50;
   if (Math.abs(m.netWhaleDelta) > 20000)      score += 10;
   else if (Math.abs(m.netWhaleDelta) > 10000) score += 5;
 
@@ -316,13 +328,13 @@ function buildVerdict(regime, conviction, divergence, m) {
   let v = `BTC exchange flows show ${regimeLabel.toLowerCase()} signals this week, with ${direction} of approximately ${flowAmt} BTC over 7 days. `;
   v += `Whale addresses (1k–10k+ BTC) ${whaleDir} ${whaleDeltaAmt} BTC from their holdings this week. `;
   v += `Price is ${m.priceChange7d >= 0 ? 'up' : 'down'} ${Math.abs(m.priceChange7d)}% over the same period. `;
-  if (m.mvrvZone !== 'unknown') v += `MVRV zone: ${m.mvrvZone.replace('_', ' ')} — market is ${mvrvDesc[m.mvrvZone]}. `;
-  if (typeof regime === 'object' && regime.boundary) v += `⚠️ Boundary signal: ${regime.note}. `;
-  if (divergence.detected) v += `⚠️ Divergence detected (${divergence.type}): ${divergence.note}. `;
+  if (m.mvrvZone !== 'unknown') v += `MVRV zone: ${m.mvrvZone.replace('_', ' ')} - market is ${mvrvDesc[m.mvrvZone]}. `;
+  if (typeof regime === 'object' && regime.boundary) v += `[BOUNDARY] ${regime.note}. `;
+  if (divergence.detected) v += `[DIVERGENCE DETECTED - ${divergence.type.toUpperCase()}]: ${divergence.note}. `;
   v += `Conviction score: ${conviction.total}/100. `;
-  if (conviction.total >= 75)      v += 'Signal is strong — flows, whale cohorts, and trend are aligned.';
-  else if (conviction.total >= 50) v += 'Signal is moderate — watch for confirmation.';
-  else                             v += 'Signal is weak — mixed or conflicting flows.';
+  if (conviction.total >= 75)      v += 'Signal is strong - flows, whale cohorts, and trend are aligned.';
+  else if (conviction.total >= 50) v += 'Signal is moderate - watch for confirmation.';
+  else                             v += 'Signal is weak - mixed or conflicting flows.';
   return v;
 }
 
@@ -349,7 +361,7 @@ const TOOLS = [
       type: 'object',
       properties: {
         asset:       { type: 'string', default: 'BTC', description: 'Asset to analyze, default BTC', examples: ['BTC'] },
-        window_days: { type: 'number', default: 7,     description: 'Lookback window in days — 7 or 30', examples: [7, 30] }
+        window_days: { type: 'number', default: 7,     description: 'Lookback window in days - 7 or 30', examples: [7, 30] }
       }
     },
     outputSchema: {
@@ -403,7 +415,7 @@ const TOOLS = [
           required: ['detected', 'type', 'severity', 'note']
         },
         verdict:            { type: 'string',  description: 'Plain English summary of regime, whale activity, price action, and signal strength' },
-        confidence:         { type: 'string',  description: 'high, medium, or low — derived from conviction_score' },
+        confidence:         { type: 'string',  description: 'high, medium, or low - derived from conviction_score' },
         risk_note:          { type: 'string',  description: 'Risk flag or confirmation note' },
         data_freshness_hours:{ type: 'number', description: '0 if freshly fetched; 4 if served from cache' },
         stale_cache:        { type: 'boolean', description: 'True if cache could not be refreshed' },
@@ -417,7 +429,7 @@ const TOOLS = [
 
   {
     name: 'get_divergence_signal',
-    description: 'Detects divergence between BTC price action and exchange flow direction — bullish or bearish signal with severity rating.',
+    description: 'Detects divergence between BTC price action and exchange flow direction - bullish or bearish signal with severity rating.',
     _meta: {
       surface: 'both',
       queryEligible: true,
@@ -444,7 +456,7 @@ const TOOLS = [
         exchange_inflow_7d_btc:   { type: 'number', description: 'Total BTC inflow to exchanges over 7 days' },
         exchange_net_flow_7d_btc: { type: 'number', description: 'Net exchange flow 7d (positive = outflow)' },
         exchange_flow_direction:  { type: 'string', description: 'outflow or inflow' },
-        cohort_net_direction:     { type: 'string', description: 'accumulating or distributing — based on whale cohort net delta' },
+        cohort_net_direction:     { type: 'string', description: 'accumulating or distributing - based on whale cohort net delta' },
         whale_cohort_signal:      { type: 'string', description: 'strong_accumulation, mild_accumulation, mild_distribution, or strong_distribution' },
         net_whale_delta_7d:       { type: 'number', description: 'Combined whale cohort 7d supply delta in BTC' },
         mvrv:                     { type: ['number', 'null'], description: 'MVRV ratio; null if unavailable' },
@@ -455,7 +467,7 @@ const TOOLS = [
         divergence_flag:          { type: 'boolean', description: 'Alias for divergence_detected' },
         divergence_note:          { type: 'string',  description: 'Plain English explanation of the divergence signal' },
         directional_bias:         { type: 'string',  description: 'bullish, bearish, or neutral' },
-        confidence:               { type: 'string',  description: 'high, medium, or low — based on divergence severity' },
+        confidence:               { type: 'string',  description: 'high, medium, or low - based on divergence severity' },
         historical_precedent_count:{ type: 'number', description: 'Number of historical days in the comparison dataset' },
         freshness_hours:          { type: 'number', description: '0 if fresh, 4 if cached' },
         stale_cache:              { type: 'boolean' },
@@ -639,7 +651,7 @@ async function dispatchTool(name, args = {}) {
         const window_days = [7, 30].includes(args.window_days) ? args.window_days : 7;
         const m          = await fetchAllMetrics();
         const regime     = classifyRegime(m.netFlow7d, m.netFlow30d, m.cohortSignal);
-        const divergence = detectDivergence(m.netFlow7d, m.priceChange7d);
+        const divergence = detectDivergence(m.netFlow7d, m.priceChange7d, m.cohortSignal);
         const conviction = scoreConviction(m, divergence);
         const verdict    = buildVerdict(regime, conviction, divergence, m);
 
@@ -679,9 +691,9 @@ async function dispatchTool(name, args = {}) {
           verdict,
           confidence: conviction.total >= 70 ? 'high' : conviction.total >= 45 ? 'medium' : 'low',
           risk_note: divergence.detected
-            ? `Divergence detected — ${divergence.note}. Exercise caution before sizing position.`
+            ? `Divergence detected: ${divergence.note}. Exercise caution before sizing position.`
             : conviction.total < 50
-            ? 'Signal is weak — consider waiting for stronger confirmation before sizing.'
+            ? 'Signal is weak - consider waiting for stronger confirmation before sizing.'
             : 'No major risk flags detected at current signal strength.',
           data_freshness_hours: m.from_cache ? 4 : 0,
           stale_cache:   m.stale || false,
@@ -699,7 +711,7 @@ async function dispatchTool(name, args = {}) {
       case 'get_divergence_signal': {
         const asset      = extractAsset(args.asset);
         const m          = await fetchAllMetrics();
-        const divergence = detectDivergence(m.netFlow7d, m.priceChange7d);
+        const divergence = detectDivergence(m.netFlow7d, m.priceChange7d, m.cohortSignal);
 
         const structured = {
           asset: asset.toUpperCase(),
@@ -737,7 +749,7 @@ async function dispatchTool(name, args = {}) {
         const asset      = extractAsset(args.asset);
         const m          = await fetchAllMetrics();
         const regime     = classifyRegime(m.netFlow7d, m.netFlow30d, m.cohortSignal);
-        const divergence = detectDivergence(m.netFlow7d, m.priceChange7d);
+        const divergence = detectDivergence(m.netFlow7d, m.priceChange7d, m.cohortSignal);
         const conviction = scoreConviction(m, divergence);
 
         const structured = {
@@ -756,7 +768,7 @@ async function dispatchTool(name, args = {}) {
           net_whale_delta_7d: m.netWhaleDelta,
           trend_direction:    m.trendDirection,
           regime_shift_flag:  m.regimeShiftFlag,
-          verdict:   conviction.total >= 75 ? 'Strong signal — high confidence' : conviction.total >= 50 ? 'Moderate signal — watch for confirmation' : 'Weak signal — mixed flows',
+          verdict:   conviction.total >= 75 ? 'Strong signal - high confidence' : conviction.total >= 50 ? 'Moderate signal - watch for confirmation' : 'Weak signal - mixed flows',
           confidence:conviction.total >= 70 ? 'high' : conviction.total >= 45 ? 'medium' : 'low',
           freshness_hours: m.from_cache ? 4 : 0,
           stale_cache:   m.stale || false,
@@ -884,7 +896,7 @@ const app = express();
 // Active SSE transports keyed by sessionId
 const transports = {};
 
-// CTX middleware placeholder — updated in main() before listen()
+// CTX middleware placeholder - updated in main() before listen()
 // Using a variable reference so the real middleware is in place
 // before any connection arrives
 let ctxMiddleware = (req, res, next) => next();
@@ -894,7 +906,7 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', server: 'whalepulse', version: '1.0.0' });
 });
 
-// ── /mcp — StreamableHTTP transport (CTX auto-discovery) ────────
+// ── /mcp - StreamableHTTP transport (CTX auto-discovery) ────────
 // Fresh server per request to avoid transport reuse issues
 app.all('/mcp', (req, res, next) => ctxMiddleware(req, res, next), async (req, res) => {
   try {
@@ -912,7 +924,7 @@ app.all('/mcp', (req, res, next) => ctxMiddleware(req, res, next), async (req, r
   }
 });
 
-// SSE endpoint — MCP clients connect here to open a streaming channel
+// SSE endpoint - MCP clients connect here to open a streaming channel
 app.get('/sse', async (req, res) => {
   const transport = new SSEServerTransport('/message', res);
   transports[transport.sessionId] = transport;
@@ -922,7 +934,7 @@ app.get('/sse', async (req, res) => {
   await server.connect(transport);
 });
 
-// Message endpoint — MCP clients POST JSON-RPC messages here
+// Message endpoint - MCP clients POST JSON-RPC messages here
 // CTX middleware intercepts tools/call for payment verification
 app.post('/message', express.json(), (req, res, next) => ctxMiddleware(req, res, next), async (req, res) => {
   const sessionId = req.query.sessionId;
@@ -942,7 +954,7 @@ async function main() {
       ctxMiddleware = ctx.createContextMiddleware();
       console.error('✓ CTX security middleware active on /message');
     } else {
-      console.error('⚠ CTX SDK loaded but createContextMiddleware not found — running without payment verification');
+      console.error('⚠ CTX SDK loaded but createContextMiddleware not found - running without payment verification');
     }
   } catch (err) {
     console.error('⚠ CTX SDK load warning (non-fatal):', err.message);
