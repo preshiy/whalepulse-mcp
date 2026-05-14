@@ -23,6 +23,7 @@ const PORT = process.env.PORT || 3000;
 const CACHE_DURATION_MS = 4 * 60 * 60 * 1000;
 
 let cache = { data: null, timestamp: null };
+let whaleCache = { data: null, timestamp: null };
 
 // ── Fetch Whale Cohorts from bitcoin-data.com ─────────────────
 async function fetchWhaleCohorts() {
@@ -32,53 +33,62 @@ async function fetchWhaleCohorts() {
   const startday = start.toISOString().split('T')[0];
   const endday = end.toISOString().split('T')[0];
 
-  const [res1k10k, res10k] = await Promise.all([
-    fetch(`https://api.bitcoin-data.com/v1/coins-addr-10K-1K-BTC?startday=${startday}&endday=${endday}&token=${BITCOIN_DATA_TOKEN}`),
-    fetch(`https://api.bitcoin-data.com/v1/coins-addr-10K-BTC?startday=${startday}&endday=${endday}&token=${BITCOIN_DATA_TOKEN}`)
-  ]);
+  try {
+    const [res1k10k, res10k] = await Promise.all([
+      fetch(`https://api.bitcoin-data.com/v1/coins-addr-10K-1K-BTC?startday=${startday}&endday=${endday}&token=${BITCOIN_DATA_TOKEN}`),
+      fetch(`https://api.bitcoin-data.com/v1/coins-addr-10K-BTC?startday=${startday}&endday=${endday}&token=${BITCOIN_DATA_TOKEN}`)
+    ]);
 
-  if (!res1k10k.ok || !res10k.ok) throw new Error('bitcoin-data.com API error');
+    if (!res1k10k.ok || !res10k.ok) throw new Error('bitcoin-data.com API error');
 
-  const data1k10k = await res1k10k.json();
-  const data10k = await res10k.json();
+    const data1k10k = await res1k10k.json();
+    const data10k = await res10k.json();
 
-  if (!Array.isArray(data1k10k) || !Array.isArray(data10k) || data1k10k.length < 2 || data10k.length < 2) {
-    throw new Error('Insufficient whale cohort data');
+    if (!Array.isArray(data1k10k) || !Array.isArray(data10k) || data1k10k.length < 2 || data10k.length < 2) {
+      throw new Error('Insufficient whale cohort data');
+    }
+
+    const cohort1k10k_now = parseFloat(data1k10k[data1k10k.length - 1].coinsAddr10Kto1Kbtc);
+    const cohort1k10k_7d  = parseFloat(data1k10k[Math.max(0, data1k10k.length - 8)].coinsAddr10Kto1Kbtc);
+    const cohort1k10k_30d = parseFloat(data1k10k[0].coinsAddr10Kto1Kbtc);
+    const cohort10k_now   = parseFloat(data10k[data10k.length - 1].coinsAddr10Kbtc);
+    const cohort10k_7d    = parseFloat(data10k[Math.max(0, data10k.length - 8)].coinsAddr10Kbtc);
+    const cohort10k_30d   = parseFloat(data10k[0].coinsAddr10Kbtc);
+
+    const delta1k10k       = Math.round(cohort1k10k_now - cohort1k10k_7d);
+    const delta10k         = Math.round(cohort10k_now   - cohort10k_7d);
+    const netWhaleDelta    = delta1k10k + delta10k;
+    const delta1k10k_30d   = Math.round(cohort1k10k_now - cohort1k10k_30d);
+    const delta10k_30d     = Math.round(cohort10k_now   - cohort10k_30d);
+    const netWhaleDelta30d = delta1k10k_30d + delta10k_30d;
+
+    let cohortSignal;
+    if (netWhaleDelta > 5000)       cohortSignal = 'strong_accumulation';
+    else if (netWhaleDelta > 0)     cohortSignal = 'mild_accumulation';
+    else if (netWhaleDelta < -5000) cohortSignal = 'strong_distribution';
+    else                            cohortSignal = 'mild_distribution';
+
+    const freshData = {
+      cohort1k10k_now: Math.round(cohort1k10k_now),
+      cohort10k_now:   Math.round(cohort10k_now),
+      delta1k10k, delta10k, netWhaleDelta,
+      delta1k10k_30d, delta10k_30d, netWhaleDelta30d,
+      cohortSignal,
+      totalWhaleHoldings: Math.round(cohort1k10k_now + cohort10k_now),
+      cohort_stale: false
+    };
+
+    whaleCache.data = freshData;
+    whaleCache.timestamp = Date.now();
+    return freshData;
+
+  } catch (err) {
+    if (whaleCache.data) {
+      console.error('bitcoin-data.com unavailable — serving stale whale cohort cache:', err.message);
+      return { ...whaleCache.data, cohort_stale: true };
+    }
+    throw err;
   }
-
-  const cohort1k10k_now = parseFloat(data1k10k[data1k10k.length - 1].coinsAddr10Kto1Kbtc);
-  const cohort1k10k_7d  = parseFloat(data1k10k[data1k10k.length - 8].coinsAddr10Kto1Kbtc);
-  const cohort1k10k_30d = parseFloat(data1k10k[0].coinsAddr10Kto1Kbtc);
-  const cohort10k_now   = parseFloat(data10k[data10k.length - 1].coinsAddr10Kbtc);
-  const cohort10k_7d    = parseFloat(data10k[data10k.length - 8].coinsAddr10Kbtc);
-  const cohort10k_30d   = parseFloat(data10k[0].coinsAddr10Kbtc);
-
-  const delta1k10k      = Math.round(cohort1k10k_now - cohort1k10k_7d);
-  const delta10k        = Math.round(cohort10k_now   - cohort10k_7d);
-  const netWhaleDelta   = delta1k10k + delta10k;
-
-  const delta1k10k_30d  = Math.round(cohort1k10k_now - cohort1k10k_30d);
-  const delta10k_30d    = Math.round(cohort10k_now   - cohort10k_30d);
-  const netWhaleDelta30d = delta1k10k_30d + delta10k_30d;
-
-  let cohortSignal;
-  if (netWhaleDelta > 5000)       cohortSignal = 'strong_accumulation';
-  else if (netWhaleDelta > 0)     cohortSignal = 'mild_accumulation';
-  else if (netWhaleDelta < -5000) cohortSignal = 'strong_distribution';
-  else                            cohortSignal = 'mild_distribution';
-
-  return {
-    cohort1k10k_now: Math.round(cohort1k10k_now),
-    cohort10k_now:   Math.round(cohort10k_now),
-    delta1k10k,
-    delta10k,
-    netWhaleDelta,
-    delta1k10k_30d,
-    delta10k_30d,
-    netWhaleDelta30d,
-    cohortSignal,
-    totalWhaleHoldings: Math.round(cohort1k10k_now + cohort10k_now)
-  };
 }
 
 // ── Fetch BTC Metrics from CoinMetrics ───────────────────────
@@ -697,6 +707,7 @@ async function dispatchTool(name, args = {}) {
             : 'No major risk flags detected at current signal strength.',
           data_freshness_hours: m.from_cache ? 4 : 0,
           stale_cache:   m.stale || false,
+          cohort_stale: m.cohort_stale || false,
           last_updated:  m.lastUpdated,
           source_primary:'coinmetrics_community',
           sources:       ['coinmetrics_community', 'bitcoin_data_api']
@@ -734,6 +745,7 @@ async function dispatchTool(name, args = {}) {
           historical_precedent_count: 2191,
           freshness_hours: m.from_cache ? 4 : 0,
           stale_cache:   m.stale || false,
+          cohort_stale: m.cohort_stale || false,
           last_updated:  m.lastUpdated,
           source_primary:'coinmetrics_community',
           sources:       ['coinmetrics_community', 'bitcoin_data_api']
@@ -772,6 +784,7 @@ async function dispatchTool(name, args = {}) {
           confidence:conviction.total >= 70 ? 'high' : conviction.total >= 45 ? 'medium' : 'low',
           freshness_hours: m.from_cache ? 4 : 0,
           stale_cache:   m.stale || false,
+          cohort_stale: m.cohort_stale || false,
           last_updated:  m.lastUpdated,
           source_primary:'coinmetrics_community',
           sources:       ['coinmetrics_community', 'bitcoin_data_api']
